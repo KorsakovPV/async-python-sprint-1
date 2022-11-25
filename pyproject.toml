@@ -1,0 +1,7 @@
+[tool.isort]
+line_length = 120
+multi_line_output = 0
+skip = ['.git',
+      '.mypy_cache',
+      '.venv',
+      'venv', ]
