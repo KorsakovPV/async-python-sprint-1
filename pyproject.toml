@@ -5,3 +5,7 @@ skip = ['.git',
       '.mypy_cache',
       '.venv',
       'venv', ]
+
+[tool.mypy]
+python_version = 3.9
+exclude = "tests/|venv/"
