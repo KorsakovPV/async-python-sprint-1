@@ -1,16 +1,16 @@
 from pydantic import BaseModel
 
 
-class DetailWeather(BaseModel):
+class DetailWeatherSchema(BaseModel):
     hour: str
     temp: int
     condition: str
 
 
-class GeneralWeather(BaseModel):
+class GeneralWeatherSchema(BaseModel):
     date: str
-    hours: list[DetailWeather]
+    hours: list[DetailWeatherSchema]
 
 
-class Weathers(BaseModel):
-    forecasts: list[GeneralWeather]
+class WeathersSchema(BaseModel):
+    forecasts: list[GeneralWeatherSchema]

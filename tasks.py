@@ -2,16 +2,17 @@ import csv
 import datetime
 import statistics
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional, Iterator
+from typing import Any, Iterator, Optional
 
-from api_client import YandexWeatherAPI, logger
-from schemas import Weathers
+import constants
+from api_client import logger
+from schemas import WeathersSchema
 from utils import ERR_MESSAGE_TEMPLATE
 
 
 class CalculatedCity:
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.calculated_weather: dict[datetime.date, dict[str, int]] = {}
         self._average_good_condition: Optional[int] = None
         self._average_good_temps: Optional[float] = None
@@ -51,15 +52,21 @@ class CalculatedCity:
 
         return self._average_good_temps
 
-    def __lt__(self, other) -> bool:
-        if other.average_good_temps == self.average_good_temps:
-            return not other.average_good_condition < self.average_good_condition
+    @property
+    def weight_of_weather_in_the_city(self):
+        """
+        Для сравнивания погоды вычисляется весовое значение.
+        Складывается средняя температура и количество дней без осадков.
 
-        return not other.average_good_temps < self.average_good_temps
+        С этим условием CAIRO предпочтительнее ABUDHABI
+        """
+        return self.average_good_temps + self.average_good_condition
+
+    def __lt__(self, other) -> bool:
+        return not other.weight_of_weather_in_the_city < self.weight_of_weather_in_the_city
 
     def __eq__(self, other) -> bool:
-        return (self.average_good_temps == other.average_good_temps
-                ) and (self.average_good_condition == other.average_good_condition)
+        return other.weight_of_weather_in_the_city == self.weight_of_weather_in_the_city
 
 
 class DataFetchingTask:
@@ -68,17 +75,19 @@ class DataFetchingTask:
     API Яндекс Погоды.
     """
 
-    def __init__(self, cities: list[str]) -> None:
+    def __init__(self, cities: list[str], weather_api, weather_schema) -> None:
         self.cities = cities
+        self.weather_api = weather_api
+        self.weather_schema = weather_schema
 
-    def get_weather(self) -> Iterator[tuple[str, Weathers]]:
-        with ThreadPoolExecutor() as pool:
+    def get_weather(self, max_workers=None) -> Iterator[tuple[str, WeathersSchema]]:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
             return pool.map(self.get_weather_for_city, self.cities)
 
-    @staticmethod
-    def get_weather_for_city(city_name) -> tuple[str, Weathers]:
-        ywAPI = YandexWeatherAPI()
-        return city_name, Weathers.parse_obj(ywAPI.get_forecasting(city_name))
+    def get_weather_for_city(self, city_name) -> tuple[str, WeathersSchema]:
+        return city_name, self.weather_schema.parse_obj(
+            self.weather_api.get_forecasting(city_name)
+        )
 
 
 class DataCalculationTask:
@@ -92,16 +101,16 @@ class DataCalculationTask:
         self.good_temps: list[int] = []
         self.calculated_weather = CalculatedCity()
 
-    def run(self, raw_weathers: tuple[str, Weathers]) -> tuple[str, CalculatedCity]:
+    def run(self, raw_weathers: tuple[str, WeathersSchema]) -> tuple[str, CalculatedCity]:
         city, weathers = raw_weathers
         for weather_on_date in weathers.forecasts:
             self.good_condition = []
             self.good_temps = []
             for hour in weather_on_date.hours:
-                if 9 <= int(hour.hour) <= 19:
+                if constants.START_OF_THE_DAY <= int(hour.hour) <= constants.END_OF_THE_DAY:
                     self.good_temps.append(int(hour.temp))
 
-                    if hour.condition in ['clear', 'partly-cloudy', 'cloudy', 'overcast']:
+                    if hour.condition in constants.GOOD_CONDITION:
                         self.good_condition.append(hour.condition)
 
             if self.good_temps:
@@ -115,26 +124,6 @@ class DataCalculationTask:
 
 
 class DataAggregationTask:
-    def create_csv_file(self, data: list[list[Any]], headers: list[str]) -> str:
-
-        csv_filename = 'output.csv'
-
-        with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
-            try:
-                writer = csv.writer(f, quotechar='"', quoting=csv.QUOTE_ALL)
-                if headers is not None:
-                    f.writelines('sep=,' + '\n')
-                    writer.writerow(headers)
-                for element in data:
-                    writer.writerow(element)
-
-                logger.info(f'Create file {csv_filename}')
-
-                return csv_filename
-
-            except Exception as ex:
-                logger.error(ex)
-                raise Exception(ERR_MESSAGE_TEMPLATE)
 
     def run(
             self,
@@ -146,20 +135,49 @@ class DataAggregationTask:
             key=lambda x: x[1]
         )
 
-        unique_date = set()
+        return sort_calculation_weather_statistics
 
+
+class DataAnalyzingTask:
+
+    def create_csv_file(self, data: list[list[Any]], headers: list[str]) -> str:
+
+        with open(constants.CSV_FILENAME, 'w', newline='', encoding='utf-8') as f:
+            try:
+                writer = csv.writer(f, quotechar='"', quoting=csv.QUOTE_ALL)
+                if headers is not None:
+                    f.writelines('sep=,' + '\n')
+                    writer.writerow(headers)
+                for element in data:
+                    writer.writerow(element)
+
+                logger.info(f'Create file {constants.CSV_FILENAME}')
+
+                return constants.CSV_FILENAME
+
+            except Exception as ex:
+                logger.error(ex)
+                raise Exception(ERR_MESSAGE_TEMPLATE)
+
+    def get_sorted_list_date(self, sort_calculation_weather_statistics) -> list[datetime.date]:
+        unique_date = set()
         for count, calculation_weather_statistic in enumerate(sort_calculation_weather_statistics):
             for date in calculation_weather_statistic[1].calculated_weather.keys():
                 unique_date.add(date)
 
-            list_unique_date = sorted(list(unique_date))
+        return sorted(list(unique_date))
 
+    def create_and_save_csv_file(self, sort_calculation_weather_statistics) -> None:
+        list_unique_date = self.get_sorted_list_date(sort_calculation_weather_statistics)
+
+        # Шапка csv файла
         headers = [
             'Город/день', '', *[
                 f'{date.day:02}-{date.month:02}' for date in list_unique_date
             ], 'Среднее', 'Рейтинг'
         ]
 
+        # Тело csv файла
         data = []
 
         for count, calculation_weather_statistic in enumerate(sort_calculation_weather_statistics):
@@ -183,16 +201,20 @@ class DataAggregationTask:
 
         self.create_csv_file(data=data, headers=headers)
 
-        return sort_calculation_weather_statistics
+    def run(
+            self, sort_calculation_weather_statistics: list[tuple[str, CalculatedCity]]
+    ) -> list[str]:
 
+        self.create_and_save_csv_file(sort_calculation_weather_statistics)
 
-class DataAnalyzingTask:
+        return self.get_best_citys(sort_calculation_weather_statistics)
 
-    def run(self, sort_calculation_weather_statistics: list[tuple[str, CalculatedCity]]) -> None:
+    def get_best_citys(self, sort_calculation_weather_statistics):
+
         best_city, best_weather = sort_calculation_weather_statistics[0]
-        print('Наиболее благоприятный(е)')
-        print(best_city)
 
+        list_of_best_city = [best_city]
         for city, weather in sort_calculation_weather_statistics[1:]:
             if weather == best_weather:
-                print(city)
+                list_of_best_city.append(city)
+        return list_of_best_city

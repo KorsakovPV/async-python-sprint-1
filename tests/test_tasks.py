@@ -1,6 +1,6 @@
 import datetime
 
-from tasks import CalculatedCity, DataCalculationTask, DataAggregationTask
+from tasks import CalculatedCity, DataAggregationTask, DataAnalyzingTask, DataCalculationTask
 
 
 class TestCalculatedCity:
@@ -35,11 +35,24 @@ class TestDataCalculationTask:
 
 class TestDataAggregationTask:
 
-    def test_run(self, calculation_weather_statistics, control_csv_file, line=None):
+    def test_run(self, calculation_weather_statistics):
         data_aggregation_task = DataAggregationTask()
         sort_calculation_weather_statistics = data_aggregation_task.run(calculation_weather_statistics)
         assert sort_calculation_weather_statistics[0][0] == 'PARIS'
         assert sort_calculation_weather_statistics[1][0] == 'MOSCOW'
 
+class TestDataAnalyzingTask:
+
+    def test_run(self, sort_calculation_weather_statistics, control_csv_file):
+        data_analyzing_task = DataAnalyzingTask()
+        best_city = data_analyzing_task.run(sort_calculation_weather_statistics)
+        assert best_city[0] == 'PARIS'
+
+
+    def test_create_and_save_csv_file(self, sort_calculation_weather_statistics, control_csv_file):
+        data_analyzing_task = DataAnalyzingTask()
+        data_analyzing_task.create_and_save_csv_file(sort_calculation_weather_statistics)
+
         with open('output.csv', 'r', encoding='utf-8') as csv_file:
+
             assert control_csv_file == csv_file.read()
