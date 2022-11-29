@@ -1,5 +1,26 @@
+[tool.poetry]
+name = "async-python-sprint-1"
+version = "0.1.0"
+description = ""
+authors = ["Pavel Korsakov <pavelkpv@gmail.com>"]
+readme = "README.md"
+packages = [{include = "async_python_sprint_1"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pydantic = "^1.10.2"
+pytest = "^7.2.0"
+flake8 = "^6.0.0"
+isort = "^5.10.1"
+mypy = "^0.991"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.isort]
-line_length = 120
+line_length = 99
 multi_line_output = 0
 skip = ['.git',
       '.mypy_cache',
