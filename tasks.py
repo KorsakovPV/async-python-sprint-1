@@ -199,7 +199,7 @@ class DataAnalyzingTask:
             data.append(row1)
             data.append(row2)
 
-        self.create_csv_file(data=data, headers=headers)
+        return self.create_csv_file(data=data, headers=headers)
 
     def run(
             self, sort_calculation_weather_statistics: list[tuple[str, CalculatedCity]]
